@@ -11,6 +11,9 @@ A tool to organize your TV show and movie files by:
 npm install seasonme -g
 ```
 
+Requires Node.js 18 or newer. File operations are validated before they run,
+existing targets are never overwritten, and unknown files are preserved.
+
 ## 1. Format Files (`seasonme format`)
 Standardize the naming of your video and subtitle files in a directory.
 
@@ -20,6 +23,8 @@ Standardize the naming of your video and subtitle files in a directory.
 ~$ seasonme format
 # or
 ~$ seasonme format -d MY_FOLDER_PATH
+# preview without changing files
+~$ seasonme format -d MY_FOLDER_PATH --dry-run
 ```
 
 ### Example
@@ -49,6 +54,8 @@ Organize subtitle files from a Subs directory to match with your video files. Su
 ### For TV Series
 ```sh
 ~$ seasonme movesubs -t series -d MY_SERIES_PATH(e.g. ~/your/path/to/Twin.Peaks)
+# preview without changing files
+~$ seasonme movesubs -t series -d MY_SERIES_PATH --dry-run
 ```
 
 #### Expected Structure
@@ -135,3 +142,16 @@ Generate sample files to test the functionality:
 ~$ cd dummy
 ~$ seasonme generate -n 10  # Creates 10 random example files
 ```
+
+`generate` refuses to use a non-empty directory unless `--force` is supplied.
+Even with `--force`, existing files are never deleted or overwritten.
+
+## Development
+
+```sh
+npm test
+npm run check
+```
+
+The test suite uses Node's built-in test runner, so no external test dependency
+is required.

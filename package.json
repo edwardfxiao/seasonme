@@ -1,11 +1,16 @@
 {
   "name": "seasonme",
-  "version": "1.1.8",
-  "description": "",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Safely organize TV show, movie, and subtitle file names",
+  "main": "src/index.js",
   "scripts": {
-    "test": "mocha --require @babel/polyfill --require @babel/register",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "check": "node --check bin/cli.js && node --check src/index.js && node --check src/format/index.js && node --check src/subs/common.js && node --check src/subs/series.js && node --check src/subs/movies.js && node --check src/dummy/index.js && node --check src/utils/index.js",
     "patch-release": "npm version patch && npm publish && git push --follow-tags"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "repository": {
     "type": "git",
@@ -32,27 +37,14 @@
   "bin": {
     "seasonme": "bin/cli.js"
   },
+  "files": [
+    "bin",
+    "src"
+  ],
   "bugs": {
     "url": "https://github.com/edwardfxiao/seasonme/issues"
   },
   "homepage": "https://github.com/edwardfxiao/seasonme#readme",
-  "devDependencies": {
-    "@babel/core": "^7.15.0",
-    "@babel/polyfill": "^7.12.1",
-    "@babel/preset-env": "^7.12.11",
-    "@babel/register": "^7.12.10",
-    "babel-eslint": "^10.1.0",
-    "chai": "^4.2.0",
-    "eslint": "^7.17.0",
-    "eslint-plugin-babel": "^5.3.1",
-    "mocha": "^8.2.1"
-  },
-  "dependencies": {
-    "boxen": "^5.0.1",
-    "chalk": "^4.1.2",
-    "klaw-sync": "^6.0.0",
-    "ramda": "^0.28.0",
-    "shelljs": "^0.8.4",
-    "yargs": "^17.1.1"
-  }
+  "devDependencies": {},
+  "dependencies": {}
 }

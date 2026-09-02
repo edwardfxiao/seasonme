@@ -1,221 +1,235 @@
-const klawSync = require('klaw-sync');
-const fs = require('fs');
-const { isMochaRunning } = require('../utils/index.js');
-const { PREFIX, CASES, X_REGEX, S_REGEX, E_REGEX, SEASON_REGEX, EPISODE_REGEX, SYMBOL_AND_REGEX, SYMBOL_DOT_REGEX, VIDEO_EXTS, SUB_EXTS } = require('../consts/index.js');
-const chalk = require('chalk');
-const boxen = require('boxen');
-const log = chalk.bold.hex('#ffffff');
-const error = chalk.bold.hex('#ffffff');
-const boxenOptionsLog = {
-  padding: 2,
-  margin: 2,
-  borderColor: '#54c754',
-  backgroundColor: '#54c754',
+const path = require('node:path');
+const { CASES, SUB_EXTS, VIDEO_EXTS } = require('../consts/index.js');
+const { executeRenamePlan, walkFiles } = require('../utils/index.js');
+
+const videoExtensions = new Set(VIDEO_EXTS.map(ext => ext.toLowerCase()));
+const subtitleExtensions = new Set(SUB_EXTS.map(ext => ext.toLowerCase()));
+
+const normalizeSeparators = value =>
+  value
+    .trim()
+    .replace(/\s+/g, '.')
+    .replace(/\.-\./g, '.')
+    .replace(/\.{2,}/g, '.');
+
+const formatVideoName = value =>
+  normalizeSeparators(value)
+    .replace(/season[._-]*(\d{1,2})/gi, 'S$1')
+    .replace(/episode[._-]*(\d{1,3})/gi, 'E$1')
+    .replace(/\.&\.E/gi, 'E')
+    .replace(/(\d{1,2})\.E(?=\d)/gi, '$1E')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.|\.$/g, '');
+
+const findXMatch = value => {
+  const match = /(^|[.\s_-])(\d{1,2}(?:[xX]\d{1,3})+)(?=$|[.\s_-])/.exec(value);
+  if (!match) return undefined;
+  return { index: match.index + match[1].length, token: match[2] };
 };
-const boxenOptionsError = {
-  padding: 2,
-  margin: 2,
-  borderColor: '#c75454',
-  backgroundColor: '#c75454',
+
+const findAbbrMatch = value => {
+  const match = /(^|[.\s_-])(S\d{1,2}(?:(?:[.\s_-]*)E\d{1,3})+)(?=$|[.\s_-])/i.exec(value);
+  if (!match) return undefined;
+  return { index: match.index + match[1].length, token: match[2] };
 };
-const renderMyLog = msg => boxen(log(msg), boxenOptionsLog);
-const renderMyError = msg => boxen(error(msg), boxenOptionsError);
-const getFiles = pathName => {
-  const files = klawSync(pathName, { nodir: true })
-    .map(item => item.path)
-    .filter(path => path.split('/').slice(-1)[0][0] !== '.');
-  return files;
+
+const findFullMatch = value => {
+  const match = /(^|[.\s_-])(Season[.\s_-]*\d{1,2}(?:(?:[.\s_-]*&?[.\s_-]*)Episode[.\s_-]*\d{1,3})+)(?=$|[.\s_-])/i.exec(value);
+  if (!match) return undefined;
+  return { index: match.index + match[1].length, token: match[2] };
 };
-const getFileName = file => {
-  const start = file.lastIndexOf('/') + 1;
-  const end = file.lastIndexOf('.');
-  const fileName = file.substr(start, end - start);
-  const ext = file.substr(end, file.length);
-  return [fileName, ext];
+
+const toSequenceInfo = (seasonNumber, episodeNumbers, matches, namingCase) => ({
+  season: `S${String(Number(seasonNumber)).padStart(2, '0')}`,
+  episode: episodeNumbers.map(number => `E${String(Number(number)).padStart(2, '0')}`).join(''),
+  matches,
+  case: namingCase,
+});
+
+const getCaseXInfoObj = value => {
+  const found = findXMatch(value);
+  if (!found) return undefined;
+  const numbers = found.token.toLowerCase().split('x');
+  return toSequenceInfo(numbers[0], numbers.slice(1), numbers, CASES[0]);
 };
-const formatVideoName = f => {
-  f = f.split(' ').join('.').replace(/\.-\./g, '.').replace(/\.\./g, '.');
-  const symbolANDMatches = f.match(SYMBOL_AND_REGEX);
-  if (symbolANDMatches) {
-    f = f.replace(symbolANDMatches[0], symbolANDMatches[0].replace(/.&.E/gi, 'E'));
-    return formatVideoName(f);
-  }
-  const symbolDOTMatches = f.match(SYMBOL_DOT_REGEX);
-  if (symbolDOTMatches) {
-    f = f.replace(symbolDOTMatches[0], symbolDOTMatches[0].replace(/.E/gi, 'E'));
-    return formatVideoName(f);
-  }
-  const seasonMatches = f.match(SEASON_REGEX);
-  if (seasonMatches) {
-    f = f.replace(seasonMatches[0], seasonMatches[0].replace(/season./gi, 'S'));
-    return formatVideoName(f);
-  }
-  const episodeMatches = f.match(EPISODE_REGEX);
-  if (episodeMatches) {
-    f = f.replace(episodeMatches[0], episodeMatches[0].replace(/episode./gi, 'E'));
-    return formatVideoName(f);
-  }
-  return f;
+
+const getCaseAbbrInfoObj = value => {
+  const found = findAbbrMatch(value);
+  if (!found) return undefined;
+  const season = /^S(\d{1,2})/i.exec(found.token)[1];
+  const episodes = [...found.token.matchAll(/E(\d{1,3})/gi)].map(match => match[1]);
+  return toSequenceInfo(season, episodes, [`S${season}`, ...episodes.map(number => `E${number}`)], CASES[1]);
 };
-const findNamingCase = f => {
-  if (f.match(X_REGEX)) {
-    return CASES[0];
-  }
-  if (f.match(S_REGEX) && f.match(E_REGEX)) {
-    return CASES[1];
-  }
-  if (f.match(SEASON_REGEX) && f.match(EPISODE_REGEX)) {
-    return CASES[2];
-  }
+
+const getCaseFullInfoObj = value => {
+  const found = findFullMatch(value);
+  if (!found) return undefined;
+  const season = /Season[.\s_-]*(\d{1,2})/i.exec(found.token)[1];
+  const episodes = [...found.token.matchAll(/Episode[.\s_-]*(\d{1,3})/gi)].map(match => match[1]);
+  return toSequenceInfo(season, episodes, [found.token], CASES[2]);
 };
-const getCaseXInfoObj = f => {
-  const matches = f.match(X_REGEX)[0].toLowerCase().split('x');
-  if (matches.length >= 2) {
-    const newMatches = [...matches];
-    newMatches.shift();
-    const paddedInfos = newMatches.map(i => i.padStart(2, '0'));
-    return { season: `S${matches[0].padStart(2, '0')}`, episode: `E${paddedInfos.join('E')}`, matches, case: CASES[0] };
-  }
-  return { season: 'S-1', episode: 'E-1' };
+
+const findNamingCase = value => {
+  if (findXMatch(value)) return CASES[0];
+  if (findFullMatch(value)) return CASES[2];
+  if (findAbbrMatch(value)) return CASES[1];
+  return undefined;
 };
-const getCaseAbbrInfoObj = f => {
-  const seasonMatches = f.match(S_REGEX);
-  const episodesMatches = f.match(E_REGEX);
-  if (seasonMatches && episodesMatches) {
-    const sNumber = seasonMatches[0].replace(/s/gi, '');
-    const eNumbers = episodesMatches.map(i => i.replace(/e/gi, '').padStart(2, '0'));
-    return { season: `S${sNumber.padStart(2, '0')}`, episode: `E${eNumbers.join('E')}`, matches: [...seasonMatches, ...episodesMatches], case: CASES[1] };
-  }
-  return { season: 'S-1', episode: 'E-1' };
-};
-const getCaseFullInfoObj = f => {
-  const seasonMatches = f.match(SEASON_REGEX);
-  const episodesMatches = f.match(EPISODE_REGEX);
-  if (seasonMatches && episodesMatches) {
-    const sNumber = seasonMatches[0].replace(/season/gi, '').replace(/\./g, '');
-    const eNumbers = episodesMatches.map(i =>
-      i
-        .replace(/episode/gi, '')
-        .replace(/\./g, '')
-        .padStart(2, '0'),
-    );
-    return { season: `S${sNumber.padStart(2, '0')}`, episode: `E${eNumbers.join('E')}`, matches: [...seasonMatches, ...episodesMatches], case: CASES[2] };
-  }
-  return { season: 'S-1', episode: 'E-1' };
-};
-const getSequenceInfo = f => {
-  switch (findNamingCase(f)) {
-    case CASES[0]: {
-      return getCaseXInfoObj(f);
-    }
-    case CASES[1]: {
-      return getCaseAbbrInfoObj(f);
-    }
-    case CASES[2]: {
-      return getCaseFullInfoObj(f);
-    }
+
+const getSequenceInfo = value => {
+  switch (findNamingCase(value)) {
+    case CASES[0]:
+      return getCaseXInfoObj(value);
+    case CASES[1]:
+      return getCaseAbbrInfoObj(value);
+    case CASES[2]:
+      return getCaseFullInfoObj(value);
+    default:
+      return undefined;
   }
 };
-const handleVideoRenaming = async files => {
-  const res = [];
+
+const canonicalizeEpisodeName = value => {
+  const formatted = formatVideoName(value);
+  const found = findAbbrMatch(formatted) || findXMatch(formatted);
+  const sequenceInfo = getSequenceInfo(formatted);
+  if (!found || !sequenceInfo) return undefined;
+  const sequence = `${sequenceInfo.season}${sequenceInfo.episode}`;
+  return {
+    name: `${formatted.slice(0, found.index)}${sequence}${formatted.slice(found.index + found.token.length)}`
+      .replace(/bluray/gi, 'BluRay')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.|\.$/g, ''),
+    sequenceInfo,
+  };
+};
+
+const sequenceKey = (directory, info) => `${path.resolve(directory)}\0${info.season}_${info.episode}`;
+
+const buildFormatPlan = async directory => {
+  const root = path.resolve(directory || process.cwd());
+  const files = await walkFiles(root);
+  const plan = [];
+  const warnings = [];
+  const errors = [];
+  const videosBySequence = new Map();
+
   for (const file of files) {
-    const [fileName, ext] = getFileName(file);
-    if (VIDEO_EXTS.includes(ext)) {
-      let newFileName = formatVideoName(fileName);
-      const sequenceInfo = getSequenceInfo(newFileName);
-      if (!sequenceInfo) {
-        console.log(renderMyError('No season info, make sure the mkv file name follows {showname}.S01E01'));
-        return;
-      }
-      const replacer = new RegExp(`(${sequenceInfo.matches.join(sequenceInfo.case === CASES[0] ? 'x' : '')})`, 'gi');
-      newFileName = newFileName.replace(replacer, `${sequenceInfo.season}${sequenceInfo.episode}`.toUpperCase()).replace('bluray', 'BluRay');
-      res.push(file.replace(fileName, newFileName));
-      if (!isMochaRunning) {
-        const tempFileName = file.replace(fileName, `${PREFIX}${newFileName}`);
-        try {
-          await fs.promises.rename(file, tempFileName);
-        } catch (err) {
-          console.log(renderMyError('Failed to rename'));
-        }
-        try {
-          await fs.promises.rename(tempFileName, tempFileName.replace(PREFIX, ''));
-        } catch (err) {
-          console.log(renderMyError('Failed to rename'));
-        }
-      }
+    const parsedPath = path.parse(file);
+    if (!videoExtensions.has(parsedPath.ext.toLowerCase())) continue;
+    const canonical = canonicalizeEpisodeName(parsedPath.name);
+    if (!canonical) {
+      warnings.push(`Skipped video without season/episode information: ${file}`);
+      continue;
     }
+    const target = path.join(parsedPath.dir, `${canonical.name}${parsedPath.ext.toLowerCase()}`);
+    const item = { source: file, target, kind: 'video', sequenceInfo: canonical.sequenceInfo };
+    plan.push(item);
+    const key = sequenceKey(parsedPath.dir, canonical.sequenceInfo);
+    const entries = videosBySequence.get(key) || [];
+    entries.push(item);
+    videosBySequence.set(key, entries);
   }
-  return res;
+
+  for (const [key, entries] of videosBySequence) {
+    if (entries.length > 1) errors.push(`Multiple videos represent the same episode (${key.split('\0')[1]}): ${entries.map(item => item.source).join(', ')}`);
+  }
+
+  for (const file of files) {
+    const parsedPath = path.parse(file);
+    if (!subtitleExtensions.has(parsedPath.ext.toLowerCase())) continue;
+    const canonical = canonicalizeEpisodeName(parsedPath.name);
+    if (!canonical) {
+      warnings.push(`Skipped subtitle without season/episode information: ${file}`);
+      continue;
+    }
+    const matches = videosBySequence.get(sequenceKey(parsedPath.dir, canonical.sequenceInfo)) || [];
+    if (!matches.length) {
+      warnings.push(`Kept subtitle because no matching video was found: ${file}`);
+      continue;
+    }
+    if (matches.length > 1) {
+      errors.push(`Cannot choose a video for subtitle: ${file}`);
+      continue;
+    }
+    const videoName = path.parse(matches[0].target).name;
+    const isChinese = /中文|简体|(?:^|[._ -])chs(?:$|[._ -])/i.test(parsedPath.name);
+    const targetName = `${videoName}${isChinese ? '.中文字幕' : ''}${parsedPath.ext.toLowerCase()}`;
+    plan.push({ source: file, target: path.join(parsedPath.dir, targetName), kind: 'subtitle', sequenceInfo: canonical.sequenceInfo });
+  }
+
+  return { root, plan, warnings, errors };
 };
+
+const format = async (props = {}) => {
+  const { directory = process.cwd(), dryRun = false } = props;
+  const result = await buildFormatPlan(directory);
+  if (result.errors.length) throw new Error(`Formatting plan has errors:\n- ${result.errors.join('\n- ')}`);
+  result.changes = await executeRenamePlan(result.plan, { dryRun });
+  result.dryRun = dryRun;
+  return result;
+};
+
+// Backward-compatible helpers. They are pure by default; callers that want to
+// modify files can pass { execute: true }.
+const handleVideoRenaming = async (files, options = {}) => {
+  const plan = [];
+  for (const file of files) {
+    const parsedPath = path.parse(file);
+    if (!videoExtensions.has(parsedPath.ext.toLowerCase())) continue;
+    const canonical = canonicalizeEpisodeName(parsedPath.name);
+    if (!canonical) continue;
+    plan.push({ source: file, target: path.join(parsedPath.dir, `${canonical.name}${parsedPath.ext.toLowerCase()}`) });
+  }
+  if (options.execute) await executeRenamePlan(plan, { dryRun: options.dryRun });
+  return plan.map(item => item.target);
+};
+
 const getVideoNamingHash = async files => {
-  const fileNamesHash = {};
+  const result = {};
   for (const file of files) {
-    const [fileName, ext] = getFileName(file);
-    if (VIDEO_EXTS.includes(ext)) {
-      const sequenceInfo = getSequenceInfo(fileName);
-      fileNamesHash[`${sequenceInfo.season}_${sequenceInfo.episode}`] = fileName;
-    }
+    const parsedPath = path.parse(file);
+    if (!videoExtensions.has(parsedPath.ext.toLowerCase())) continue;
+    const canonical = canonicalizeEpisodeName(parsedPath.name);
+    if (!canonical) continue;
+    const key = `${canonical.sequenceInfo.season}_${canonical.sequenceInfo.episode}`;
+    if (result[key] && result[key] !== canonical.name) throw new Error(`Multiple videos represent ${key}`);
+    result[key] = canonical.name;
   }
-  return fileNamesHash;
+  return result;
 };
-const handleSubRenaming = async (files, fileNamesHash) => {
-  const res = [];
+
+const handleSubRenaming = async (files, fileNamesHash, options = {}) => {
+  const plan = [];
   for (const file of files) {
-    const [fileName, ext] = getFileName(file);
-    if (SUB_EXTS.includes(ext)) {
-      let newFileName = formatVideoName(fileName);
-      const sequenceInfo = getSequenceInfo(newFileName);
-      if (fileName.includes('中文') || fileName.includes('简体') || fileName.toLowerCase().includes('chs')) {
-        res.push(file.replace(fileName, fileNamesHash[`${sequenceInfo.season}_${sequenceInfo.episode}`]));
-        if (!isMochaRunning) {
-          try {
-            await fs.promises.rename(file, file.replace(fileName, fileNamesHash[`${sequenceInfo.season}_${sequenceInfo.episode}`] + '.中文字幕'));
-          } catch (err) {
-            console.log(renderMyError('Failed to rename'));
-          }
-        }
-      } else {
-        if (!sequenceInfo) {
-          console.log(renderMyError('No episode info, make sure the srt file name follows {showname}.S01E01'));
-          return;
-        }
-        res.push(file.replace(fileName, fileNamesHash[`${sequenceInfo.season}_${sequenceInfo.episode}`]));
-        if (!isMochaRunning) {
-          try {
-            await fs.promises.rename(file, file.replace(fileName, fileNamesHash[`${sequenceInfo.season}_${sequenceInfo.episode}`]));
-          } catch (err) {
-            console.log(renderMyError('Failed to rename'));
-          }
-        }
-      }
-    }
+    const parsedPath = path.parse(file);
+    if (!subtitleExtensions.has(parsedPath.ext.toLowerCase())) continue;
+    const canonical = canonicalizeEpisodeName(parsedPath.name);
+    if (!canonical) continue;
+    const key = `${canonical.sequenceInfo.season}_${canonical.sequenceInfo.episode}`;
+    const videoName = fileNamesHash[key];
+    if (!videoName) continue;
+    const isChinese = /中文|简体|(?:^|[._ -])chs(?:$|[._ -])/i.test(parsedPath.name);
+    plan.push({
+      source: file,
+      target: path.join(parsedPath.dir, `${videoName}${isChinese ? '.中文字幕' : ''}${parsedPath.ext.toLowerCase()}`),
+    });
   }
-  return res;
-};
-const format = async props => {
-  const { directory } = props;
-  const dir = directory || process.cwd();
-  const files = getFiles(dir);
-  // handle formatting video name
-  await handleVideoRenaming(files);
-  // handle getting formatted video name hash
-  const renamedFiles = getFiles(dir);
-  const fileNamesHash = await getVideoNamingHash(renamedFiles);
-  console.log(fileNamesHash);
-  // handle rename srt file
-  await handleSubRenaming(renamedFiles, fileNamesHash);
-  console.log(renderMyLog('Formatted Successfully!'));
+  if (options.execute) await executeRenamePlan(plan, { dryRun: options.dryRun });
+  return plan.map(item => item.target);
 };
 
 module.exports = {
-  formatVideoName,
+  buildFormatPlan,
+  canonicalizeEpisodeName,
   findNamingCase,
-  getCaseXInfoObj,
+  format,
+  formatVideoName,
   getCaseAbbrInfoObj,
   getCaseFullInfoObj,
+  getCaseXInfoObj,
   getSequenceInfo,
-  handleVideoRenaming,
   getVideoNamingHash,
   handleSubRenaming,
-  format,
+  handleVideoRenaming,
 };

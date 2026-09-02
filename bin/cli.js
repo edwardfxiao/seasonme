@@ -1,78 +1,90 @@
-#! /usr/bin/env node
+#!/usr/bin/env node
+const { parseArgs } = require('node:util');
+const packageJson = require('../package.json');
 const { generateDummyFiles } = require('../src/dummy/index.js');
 const { format } = require('../src/format/index.js');
 const { moveSeriesSubs } = require('../src/subs/series.js');
 const { moveMoviesSubs } = require('../src/subs/movies.js');
-const R = require('ramda');
-const yargs = require('yargs');
-yargs
-  .command('format', 'Formatting the files', v => {
-    const { directory } = v.argv;
-    format({ directory });
-  })
-  .example('$0 format', 'Format mvk and srt (in current dir)')
-  .example('$0 format -d dir', 'Format mvk and srt (in designate dir)')
-  .command('generate', 'Generate dummy files', v => {
-    const { directory, number } = v.argv;
-    generateDummyFiles({ directory, number });
-  })
-  .example('$0 generate -n 4', 'Generate 4 files (in current dir)')
-  .example('$0 generate -d dir -n 4', 'Generate 4 files (in designate dir)')
-  .command('movesubs', 'Move subs in series folder', v => {
-    const { directory, type } = v.argv;
-    const videoType = type === 'series' || type === 'movies' ? type : 'series';
-    if (R.isNil(directory)) {
-      console.error('Please provide a ' + videoType + ' directory');
-      return;
-    }
-    if (type === 'series') {
-      moveSeriesSubs({ directory });
-    } else if (type === 'movies') {
-      moveMoviesSubs({ directory });
-    } else {
-      moveSeriesSubs({ directory });
-    }
-  })
-  .example('$0 movesubs -t series -d dir', 'Move subs in series folder (in designate dir)')
-  .example(
-    '$0 movesubs -t series -d dir',
-    'Move subs in one series directory. e.g\n' +
-      '│───Twin.Peaks\n' +
-      '│       └───Twin.Peaks.S01\n' +
-      '│       │     └───Subs\n' +
-      '│       │        └───Twin.Peaks.S01E01\n' +
-      '│       │              └───English3.srt\n' +
-      '│       │              └───English4.srt\n' +
-      '│       └───Twin.Peaks.S02\n' +
-      '│             └───Subs\n' +
-      '│                └───Twin.Peaks.S02E01\n' +
-      '│                      └───English3.srt\n' +
-      '│                      └───English4.srt\n',
-  )
-  .example(
-    '$0 movesubs -t movies -d dir',
-    'Move subs in all movies under one directory. e.g\n' +
-      'movies\n' +
-      '└───Toy.Story.1995\n' +
-      '│       Toy.Story.1995.mkv\n' +
-      '│       Subs\n' +
-      '│       └───English3.srt\n' +
-      '│       └───English4.srt\n' +
-      '│       \n' +
-      '└───Mission.Impossible.1996\n' +
-      '│       Mission.Impossible.1996.mkv\n' +
-      '│       Subs\n' +
-      '│       └───English3.srt\n' +
-      '│       └───English4.srt\n',
-  )
-  .option('verbose', {
-    alias: 'v',
-    type: 'boolean',
-    description: 'Run with verbose logging',
-  })
-  .help()
-  .alias('help', 'h')
-  .alias('d', 'directory')
-  .alias('t', 'type')
-  .alias('g', 'generate')
-  .alias('n', 'number').argv;
+
+const HELP = `seasonme ${packageJson.version}
+
+Usage:
+  seasonme format [-d directory] [--dry-run]
+  seasonme movesubs -t <series|movies> -d directory [--dry-run]
+  seasonme generate -n number [-d directory] [--force]
+
+Commands:
+  format      Standardize TV video and subtitle names
+  movesubs    Move subtitles out of Subs folders
+  generate    Generate sample files without deleting existing content
+
+Global options:
+  -h, --help      Show help
+  -v, --version   Show version
+
+Safety:
+  Renames are validated before any file is changed. Use --dry-run to inspect
+  planned format/movesubs operations. Existing targets are never overwritten.
+`;
+
+const commonOptions = {
+  directory: { type: 'string', short: 'd' },
+  'dry-run': { type: 'boolean', default: false },
+  help: { type: 'boolean', short: 'h', default: false },
+};
+
+const printResult = result => {
+  for (const warning of result.warnings || []) console.warn(`Warning: ${warning}`);
+  for (const item of result.changes || []) console.log(`${result.dryRun ? 'Would move' : 'Moved'}: ${item.source} -> ${item.target}`);
+  console.log(`${result.dryRun ? 'Planned' : 'Completed'} ${result.changes ? result.changes.length : 0} file operation(s).`);
+};
+
+const parse = (args, options) => parseArgs({ args, options, allowPositionals: false, strict: true }).values;
+
+const main = async (argv = process.argv.slice(2)) => {
+  if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
+    console.log(HELP);
+    return;
+  }
+  if (argv[0] === '--version' || argv[0] === '-v') {
+    console.log(packageJson.version);
+    return;
+  }
+
+  const [command, ...args] = argv;
+  if (command === 'format') {
+    const values = parse(args, commonOptions);
+    printResult(await format({ directory: values.directory, dryRun: values['dry-run'] }));
+    return;
+  }
+  if (command === 'movesubs') {
+    const values = parse(args, { ...commonOptions, type: { type: 'string', short: 't' } });
+    if (!values.directory) throw new TypeError('movesubs requires --directory');
+    if (!['series', 'movies'].includes(values.type)) throw new TypeError('movesubs --type must be series or movies');
+    const handler = values.type === 'series' ? moveSeriesSubs : moveMoviesSubs;
+    printResult(await handler({ directory: values.directory, dryRun: values['dry-run'] }));
+    return;
+  }
+  if (command === 'generate') {
+    const values = parse(args, {
+      directory: { type: 'string', short: 'd' },
+      number: { type: 'string', short: 'n' },
+      force: { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h', default: false },
+    });
+    if (values.number === undefined) throw new TypeError('generate requires --number');
+    const result = await generateDummyFiles({ directory: values.directory, number: values.number, force: values.force });
+    console.log(`Generated ${result.videos.length} video and ${result.subs.length} subtitle files in ${result.directory}.`);
+    return;
+  }
+  throw new TypeError(`Unknown command: ${command}`);
+};
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error(`Error: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { HELP, main };

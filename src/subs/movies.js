@@ -1,93 +1,54 @@
-const klawSync = require('klaw-sync');
-const { exec } = require('child_process');
-const R = require('ramda');
-const { VIDEO_EXTS } = require('../consts/index.js');
-const getMovieFolder = pathName =>
-  R.compose(
-    R.filter(path => path.split('/').slice(-1)[0][0] !== '.'),
-    R.map(item => item.path),
-  )(klawSync(pathName, { nofile: true, depthLimit: 0 }));
-const getSubFolder = pathName =>
-  R.compose(
-    R.filter(path => path.split('/').slice(-1)[0][0] !== '.'),
-    R.map(item => item.path),
-  )(klawSync(pathName, { nofile: true, depthLimit: 0 }));
-const geVideoFileName = pathName =>
-  R.compose(R.map(item => item.path))(
-    klawSync(pathName, {
-      nodir: true,
-      depthLimit: 0,
-      filter: item => R.last(item.path.split('/'))[0] !== '.' && VIDEO_EXTS.includes(item.path.substring(item.path.lastIndexOf('.'), item.path.length)),
-    }),
-  );
-const geFilesFromFolder = pathName =>
-  R.compose(R.map(item => item.path))(
-    klawSync(pathName, {
-      nodir: true,
-      depthLimit: 0,
-    }),
-  );
+const path = require('node:path');
+const { executeRenamePlan, listDirectories, listFiles, removeDirectoryIfEmpty } = require('../utils/index.js');
+const { getSubtitleTargetName, isSubtitle, isVideo } = require('./common.js');
 
-const handleExec = cmd =>
-  new Promise((resolve, reject) => {
-    exec(cmd, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-  });
-const getFileName = file => {
-  const start = file.lastIndexOf('/') + 1;
-  const end = file.lastIndexOf('.');
-  const fileName = file.substring(start, end - start);
-  const ext = file.substring(end, file.length);
-  return [fileName, ext];
-};
-const moveMoviesSubs = async props => {
-  const { directory } = props;
-  const dir = directory || process.cwd();
-  const movieFolders = getMovieFolder(dir);
-  R.forEach(async movieFolder => {
-    const subFolders = getSubFolder(movieFolder);
-    const subs = R.find(i => i.includes('/Subs') && R.last(i.split('/')) === 'Subs')(subFolders);
-    if (subs) {
-      // console.log(movieFolder.substring(movieFolder.lastIndexOf('/') + 1, movieFolder.length));
-      const res = geVideoFileName(movieFolder);
-      if (res.length) {
-        const moviePath = res[0];
-        const movieName = moviePath.substring(moviePath.lastIndexOf('/') + 1, moviePath.lastIndexOf('.'));
-        const subFiles = geFilesFromFolder(subs);
-        for (const subFile of subFiles) {
-          // console.log(subFile);
-          // console.log(subs);
-          const subFileName = R.replace(`${subs}/`, '', subFile);
-          if (subFileName[0] !== '.') {
-            const matches = subFileName.match(/[0-9]+_+/gim);
-            // console.log(subFile, ' -- ', subFileName);
-            const numberPart = matches && matches.length ? `.${matches[0]}` : '.';
-            const number = numberPart.replace(/_/g, '');
-            const ext = getFileName(subFileName)[1];
-            if (subFileName.toLowerCase().includes('chinese')) {
-              const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              const command = `mv '${subFile}' '${movieFolder}/${movieName}.${subFileName.replace(numberPartReg, '').replace(/chinese/gi, `中文字幕${number}`)}'`;
-              await handleExec(command);
-            } else if (subFileName.toLowerCase().includes('english')) {
-              const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              const command = `mv '${subFile}' '${movieFolder}/${movieName}${subFileName.replace(numberPartReg, '').replace(/english/gi, `.English${number}`)}'`;
-              // console.log(command);
-              await handleExec(command);
-            } else {
-              const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              const command = `mv '${subFile}' '${movieFolder}/${movieName}.${subFileName.replace(numberPartReg, '').replace(ext, `${number}${ext}`)}'`;
-              await handleExec(command);
-            }
-          }
-        }
-        const rmSubsFolderCommand = `rm -rf '${subs}'`;
-        await handleExec(rmSubsFolderCommand);
-      }
+const buildMoviesSubsPlan = async directory => {
+  const root = path.resolve(directory || process.cwd());
+  const movieFolders = await listDirectories(root);
+  const plan = [];
+  const warnings = [];
+  const cleanupCandidates = [];
+
+  for (const movieFolder of movieFolders) {
+    const children = await listDirectories(movieFolder);
+    const subsFolder = children.find(folder => path.basename(folder).toLowerCase() === 'subs');
+    if (!subsFolder) continue;
+    const videos = (await listFiles(movieFolder)).filter(isVideo);
+    const folderName = path.basename(movieFolder).toLowerCase();
+    const exactVideo = videos.find(video => path.parse(video).name.toLowerCase() === folderName);
+    const video = exactVideo || (videos.length === 1 ? videos[0] : undefined);
+    if (!video) {
+      warnings.push(`Kept subtitles because the movie video is missing or ambiguous: ${movieFolder}`);
+      continue;
     }
-  })(movieFolders);
+
+    const movieName = path.parse(video).name;
+    for (const file of await listFiles(subsFolder)) {
+      if (!isSubtitle(file)) {
+        warnings.push(`Kept unsupported file: ${file}`);
+        continue;
+      }
+      plan.push({
+        source: file,
+        target: path.join(movieFolder, getSubtitleTargetName(file, movieName)),
+        kind: 'subtitle',
+      });
+    }
+    cleanupCandidates.push(subsFolder);
+  }
+
+  return { root, plan, warnings, cleanupCandidates };
 };
-module.exports = {
-  moveMoviesSubs,
+
+const moveMoviesSubs = async (props = {}) => {
+  const { directory = process.cwd(), dryRun = false } = props;
+  const result = await buildMoviesSubsPlan(directory);
+  result.changes = await executeRenamePlan(result.plan, { dryRun });
+  if (!dryRun) {
+    for (const folder of result.cleanupCandidates) await removeDirectoryIfEmpty(folder);
+  }
+  result.dryRun = dryRun;
+  return result;
 };
+
+module.exports = { buildMoviesSubsPlan, moveMoviesSubs };

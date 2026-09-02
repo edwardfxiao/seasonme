@@ -1,113 +1,52 @@
-const klawSync = require('klaw-sync');
-const { exec } = require('child_process');
-const R = require('ramda');
-const getSerieFolder = pathName =>
-  R.compose(
-    R.filter(path => path.split('/').slice(-1)[0][0] !== '.'),
-    R.map(item => item.path),
-  )(klawSync(pathName, { nofile: true, depthLimit: 0 }));
-const getSubFolder = pathName =>
-  R.compose(
-    R.filter(path => path.split('/').slice(-1)[0][0] !== '.'),
-    R.map(item => item.path),
-  )(klawSync(pathName, { nofile: true, depthLimit: 2 }));
-const geFilesFromFolder = pathName =>
-  R.compose(R.map(item => item.path))(
-    klawSync(pathName, {
-      nodir: true,
-      depthLimit: 0,
-    }),
-  );
-const handleExec = cmd =>
-  new Promise((resolve, reject) => {
-    exec(cmd, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-  });
-const getFileName = file => {
-  const start = file.lastIndexOf('/') + 1;
-  const end = file.lastIndexOf('.');
-  const fileName = file.substring(start, end - start);
-  const ext = file.substring(end, file.length);
-  return [fileName, ext];
-};
-const handleTransferFiles = async allEpisodesFolders => {
-  for (const episodeFolder of allEpisodesFolders) {
-    const episodeSubs = geFilesFromFolder(episodeFolder);
-    if (episodeSubs[0]) {
-      const serieName = episodeSubs[0].substring(episodeSubs[0].indexOf('Subs') + 'Subs/'.length, episodeSubs[0].lastIndexOf('/'));
-      const serieFolder = episodeSubs[0].substring(0, episodeSubs[0].indexOf('Subs') - 1);
-      for (const subFile of episodeSubs) {
-        const subFileName = R.last(subFile.split('/'));
-        if (subFileName[0] !== '.') {
-          const matches = subFileName.match(/^[0-9]+_+/gim);
-          if (matches) {
-            // console.log(subFileName, matches)
-            const numberPart = matches && matches.length ? `.${matches[0]}` : '.';
-            const number = numberPart.replace(/_/g, '');
-            const ext = getFileName(subFileName)[1];
-            const chineseLans = ['chinese', 'chi', 'chs', 'cht', 'zh', 'zh-cn', 'zh-tw', 'zh-hk', 'zh-sg', 'zh-mo'];
-            const englishLans = ['english', 'eng', 'en'];
-            const lowerSubFileName = subFileName.toLowerCase();
-            const eng = R.find(i => lowerSubFileName.includes(i))(englishLans);
-            const chi = R.find(i => lowerSubFileName.includes(i))(chineseLans);
-            if (chi) {
-              const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              const command = `mv '${subFile}' '${serieFolder}/${serieName}.${subFileName.replace(numberPartReg, '').replace(new RegExp(chi, 'gi'), `中文字幕${number}`)}'`;
-              await handleExec(command);
-            } else if (eng) {
-              const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              const command = `mv '${subFile}' '${serieFolder}/${serieName}${subFileName.replace(numberPartReg, '').replace(new RegExp(eng, 'gi'), `.English${number}`)}'`;
-              await handleExec(command);
-            } else {
-              // const numberPartReg = new RegExp(numberPart.replace(/\./g, ''), 'gi');
-              // const command = `mv '${subFile}' '${serieFolder}/${serieName}.${subFileName.replace(numberPartReg, '').replace(ext, `${number}${ext}`)}'`;
-              // await handleExec(command);
-            }
-          } else {
-            // the subs are already in the correct format
-            const lowerSubFileName = subFileName.toLowerCase();
-            const chineseLans = ['.chinese', '.chi', '.chs', '.cht', '.zh', '.zh-cn', '.zh-tw', '.zh-hk', '.zh-sg', '.zh-mo'];
-            const englishLans = ['.english', '.eng', '.en'];
-            const eng = R.find(i => lowerSubFileName.includes(i))(englishLans);
-            const chi = R.find(i => lowerSubFileName.includes(i))(chineseLans);
-            if (chi || eng) {
-              const command = `mv '${subFile}' '${serieFolder}/${subFileName}'`;
-              await handleExec(command);
-            }
-          }
+const path = require('node:path');
+const { executeRenamePlan, listDirectories, listFiles, removeDirectoryIfEmpty, walkDirectories } = require('../utils/index.js');
+const { getSubtitleTargetName, isSubtitle } = require('./common.js');
+
+const buildSeriesSubsPlan = async directory => {
+  const root = path.resolve(directory || process.cwd());
+  const directories = await walkDirectories(root);
+  const subsFolders = directories.filter(folder => path.basename(folder).toLowerCase() === 'subs');
+  const plan = [];
+  const warnings = [];
+  const cleanupCandidates = [];
+
+  for (const subsFolder of subsFolders) {
+    const episodeFolders = await listDirectories(subsFolder);
+    const looseFiles = await listFiles(subsFolder);
+    for (const file of looseFiles) warnings.push(`Kept file outside an episode folder: ${file}`);
+    for (const episodeFolder of episodeFolders) {
+      cleanupCandidates.push(episodeFolder);
+      const episodeName = path.basename(episodeFolder);
+      for (const file of await listFiles(episodeFolder)) {
+        if (!isSubtitle(file)) {
+          warnings.push(`Kept unsupported file: ${file}`);
+          continue;
         }
+        plan.push({
+          source: file,
+          target: path.join(path.dirname(subsFolder), getSubtitleTargetName(file, episodeName)),
+          kind: 'subtitle',
+        });
       }
     }
+    cleanupCandidates.push(subsFolder);
   }
+
+  return { root, plan, warnings, cleanupCandidates };
 };
-const moveSeriesSubs = async props => {
-  const { directory } = props;
-  const dir = directory || process.cwd();
-  const serieFolders = getSerieFolder(dir);
-  const folders = R.flatten(
-    R.map(serieFolder =>
-      R.flatten(
-        R.map(folder =>
-          R.compose(R.map(item => item.path))(
-            klawSync(folder, {
-              nofile: true,
-              depthLimit: 1,
-            }),
-          ),
-        )(getSubFolder(serieFolder)),
-      ),
-    )(serieFolders),
-  );
-  const allEpisodesFolders = R.uniq(R.filter(i => i.includes('/Subs') && R.last(i.split('/')) !== 'Subs')(folders));
-  await handleTransferFiles(allEpisodesFolders);
-  const subFolders = R.map(episodeFolder => `'${episodeFolder.substring(0, episodeFolder.indexOf('/Subs') + '/Subs'.length)}'`)(allEpisodesFolders);
-  R.forEach(async episodeFolder => {
-    const rmSubsFolderCommand = `rm -rf ${episodeFolder}`;
-    await handleExec(rmSubsFolderCommand);
-  })(R.uniq(subFolders));
+
+const moveSeriesSubs = async (props = {}) => {
+  const { directory = process.cwd(), dryRun = false } = props;
+  const result = await buildSeriesSubsPlan(directory);
+  result.changes = await executeRenamePlan(result.plan, { dryRun });
+  if (!dryRun) {
+    const episodeFolders = result.cleanupCandidates.filter(folder => path.basename(folder).toLowerCase() !== 'subs');
+    const subsFolders = result.cleanupCandidates.filter(folder => path.basename(folder).toLowerCase() === 'subs');
+    for (const folder of [...episodeFolders].reverse()) await removeDirectoryIfEmpty(folder);
+    for (const folder of [...subsFolders].reverse()) await removeDirectoryIfEmpty(folder);
+  }
+  result.dryRun = dryRun;
+  return result;
 };
-module.exports = {
-  moveSeriesSubs,
-};
+
+module.exports = { buildSeriesSubsPlan, moveSeriesSubs };
