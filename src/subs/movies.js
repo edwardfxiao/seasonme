@@ -2,7 +2,7 @@ const path = require('node:path');
 const { executeRenamePlan, listDirectories, listFiles, removeDirectoryIfEmpty } = require('../utils/index.js');
 const { getSubtitleTargetName, isSubtitle, isVideo } = require('./common.js');
 
-const buildMoviesSubsPlan = async directory => {
+const buildMoviesSubsPlan = async (directory, options = {}) => {
   const root = path.resolve(directory || process.cwd());
   const movieFolders = await listDirectories(root);
   const plan = [];
@@ -30,7 +30,7 @@ const buildMoviesSubsPlan = async directory => {
       }
       plan.push({
         source: file,
-        target: path.join(movieFolder, getSubtitleTargetName(file, movieName)),
+        target: path.join(movieFolder, getSubtitleTargetName(file, movieName, options)),
         kind: 'subtitle',
       });
     }
@@ -41,8 +41,8 @@ const buildMoviesSubsPlan = async directory => {
 };
 
 const moveMoviesSubs = async (props = {}) => {
-  const { directory = process.cwd(), dryRun = false } = props;
-  const result = await buildMoviesSubsPlan(directory);
+  const { directory = process.cwd(), dryRun = false, infuseFriendly = false } = props;
+  const result = await buildMoviesSubsPlan(directory, { infuseFriendly });
   result.changes = await executeRenamePlan(result.plan, { dryRun });
   if (!dryRun) {
     for (const folder of result.cleanupCandidates) await removeDirectoryIfEmpty(folder);

@@ -40,15 +40,44 @@ The.Office.US.S01
 │   the office 1x2.srt
 ```
 
-After:
+After (default style):
 ```
 The.Office.US.S01
 │
-│   The.Office.US.S01E1.BluRay.mp4
-│   The.Office.US.S01E1.BluRay.srt
-│   The.Office.US.S01E2.BluRay.mp4
-│   The.Office.US.S01E2.BluRay.srt
+│   The.Office.US.S01E01.BluRay.mp4
+│   The.Office.US.S01E01.BluRay.srt
+│   The.Office.US.S01E02.BluRay.mp4
+│   The.Office.US.S01E02.BluRay.srt
 ```
+
+### Optional Infuse/TMDB-friendly mode
+
+The default output keeps seasonme's compact multi-episode and subtitle styles,
+such as `S04E05E06` and `.中文字幕`. Add `--infuse-friendly` only when you
+want stricter Infuse/Plex naming:
+
+```sh
+seasonme format -d MY_FOLDER_PATH --infuse-friendly
+seasonme movesubs -t series -d MY_SERIES_PATH --infuse-friendly
+```
+
+This mode writes the Infuse-recommended `Show.Name.S01E02.<anything>` pattern.
+Specials use `S00`, multi-episode files use the Plex-compatible
+`S01E01-E03` range, and bracketed/version forms such as `[S03E01]` and
+`S03E01v2` are normalized to unambiguous episode tokens.
+
+The series title and release year are preserved. A year is optional in Infuse,
+but including it improves TMDB matching. For an exact series match, include the
+TMDB show ID in the original filename, for example
+`Show Name (2020) {tmdb-123456} S01E01.mkv`. The episode numbers still need to
+match the season and episode order listed on TMDB; seasonme cannot infer a
+different episode order from the video itself. Date-only and anime
+absolute-number filenames are left unchanged because Infuse's documented TV
+matching requires a season number.
+
+In `--infuse-friendly` mode external subtitles are renamed to exactly match
+their video and recognized languages use Infuse's documented suffix style,
+for example `Show.Name.S01E01-en.srt` or `Show.Name.S01E01-zh.srt`.
 
 ## 2. Move Subtitles (`seasonme movesubs`)
 Organize subtitle files from a Subs directory to match with your video files. Supports both TV series and movies.

@@ -10,8 +10,8 @@ const { printResult } = require('../src/ui/index.js');
 const HELP = `seasonme ${packageJson.version}
 
 Usage:
-  seasonme format [-d directory] [--dry-run]
-  seasonme movesubs -t <series|movies> -d directory [--dry-run]
+  seasonme format [-d directory] [--dry-run] [--infuse-friendly]
+  seasonme movesubs -t <series|movies> -d directory [--dry-run] [--infuse-friendly]
   seasonme generate -n number [-d directory] [--force]
 
 Commands:
@@ -20,8 +20,9 @@ Commands:
   generate    Generate sample files without deleting existing content
 
 Global options:
-  -h, --help      Show help
-  -v, --version   Show version
+  -h, --help          Show help
+  -v, --version       Show version
+  --infuse-friendly   Use Infuse/Plex ranges and language-code suffixes
 
 Safety:
   Renames are validated before any file is changed. Use --dry-run to inspect
@@ -31,6 +32,8 @@ Safety:
 const commonOptions = {
   directory: { type: 'string', short: 'd' },
   'dry-run': { type: 'boolean', default: false },
+  'infuse-friendly': { type: 'boolean', default: false },
+  infusefriendly: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 };
 
@@ -49,7 +52,8 @@ const main = async (argv = process.argv.slice(2)) => {
   const [command, ...args] = argv;
   if (command === 'format') {
     const values = parse(args, commonOptions);
-    printResult(await format({ directory: values.directory, dryRun: values['dry-run'] }), { command: 'format' });
+    const infuseFriendly = values['infuse-friendly'] || values.infusefriendly;
+    printResult(await format({ directory: values.directory, dryRun: values['dry-run'], infuseFriendly }), { command: 'format' });
     return;
   }
   if (command === 'movesubs') {
@@ -57,7 +61,8 @@ const main = async (argv = process.argv.slice(2)) => {
     if (!values.directory) throw new TypeError('movesubs requires --directory');
     if (!['series', 'movies'].includes(values.type)) throw new TypeError('movesubs --type must be series or movies');
     const handler = values.type === 'series' ? moveSeriesSubs : moveMoviesSubs;
-    printResult(await handler({ directory: values.directory, dryRun: values['dry-run'] }));
+    const infuseFriendly = values['infuse-friendly'] || values.infusefriendly;
+    printResult(await handler({ directory: values.directory, dryRun: values['dry-run'], infuseFriendly }));
     return;
   }
   if (command === 'generate') {

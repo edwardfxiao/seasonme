@@ -2,7 +2,7 @@ const path = require('node:path');
 const { executeRenamePlan, listDirectories, listFiles, removeDirectoryIfEmpty, walkDirectories } = require('../utils/index.js');
 const { getSubtitleTargetName, isSubtitle } = require('./common.js');
 
-const buildSeriesSubsPlan = async directory => {
+const buildSeriesSubsPlan = async (directory, options = {}) => {
   const root = path.resolve(directory || process.cwd());
   const directories = await walkDirectories(root);
   const subsFolders = directories.filter(folder => path.basename(folder).toLowerCase() === 'subs');
@@ -24,7 +24,7 @@ const buildSeriesSubsPlan = async directory => {
         }
         plan.push({
           source: file,
-          target: path.join(path.dirname(subsFolder), getSubtitleTargetName(file, episodeName)),
+          target: path.join(path.dirname(subsFolder), getSubtitleTargetName(file, episodeName, options)),
           kind: 'subtitle',
         });
       }
@@ -36,8 +36,8 @@ const buildSeriesSubsPlan = async directory => {
 };
 
 const moveSeriesSubs = async (props = {}) => {
-  const { directory = process.cwd(), dryRun = false } = props;
-  const result = await buildSeriesSubsPlan(directory);
+  const { directory = process.cwd(), dryRun = false, infuseFriendly = false } = props;
+  const result = await buildSeriesSubsPlan(directory, { infuseFriendly });
   result.changes = await executeRenamePlan(result.plan, { dryRun });
   if (!dryRun) {
     const episodeFolders = result.cleanupCandidates.filter(folder => path.basename(folder).toLowerCase() !== 'subs');
