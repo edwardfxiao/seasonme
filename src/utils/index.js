@@ -171,6 +171,16 @@ const removeDirectoryIfEmpty = async directory => {
   }
 };
 
+const removeDirectoryTree = async directory => {
+  try {
+    await fsPromises.rm(directory, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return true;
+    throw error;
+  }
+};
+
 module.exports = {
   PlanValidationError,
   executeRenamePlan,
@@ -178,6 +188,7 @@ module.exports = {
   listFiles,
   pathExists,
   removeDirectoryIfEmpty,
+  removeDirectoryTree,
   validateRenamePlan,
   walkDirectories,
   walkFiles,

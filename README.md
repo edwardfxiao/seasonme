@@ -128,6 +128,22 @@ Twin.Peaks
 ~$ seasonme movesubs -t movies -d MY_MOVIES_PATH(e.g. ~/your/path/to/movies)
 ```
 
+### Force-remove `Subs` folders
+
+By default, `movesubs` removes a `Subs` folder only after it becomes empty and
+preserves unsupported or unmatched files. To deliberately delete every detected
+`Subs` folder together with all files left inside it, add:
+
+```sh
+seasonme movesubs -t series -d MY_SERIES_PATH --force-remove-subs
+seasonme movesubs -t movies -d MY_MOVIES_PATH --force-remove-subs
+# short form
+seasonme movesubs -t series -d MY_SERIES_PATH -f
+```
+
+This option is destructive. Preview the moved files and recursive folder
+deletions first with `--dry-run`.
+
 #### Expected Structure
 ```
 movies

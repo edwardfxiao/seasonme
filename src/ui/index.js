@@ -4,6 +4,7 @@ const COLORS = {
   green: '\u001b[38;2;84;199;84m',
   yellow: '\u001b[38;2;230;180;60m',
   cyan: '\u001b[38;2;86;182;194m',
+  red: '\u001b[38;2;220;90;90m',
   dim: '\u001b[2m',
   bold: '\u001b[1m',
   reset: '\u001b[0m',
@@ -40,13 +41,24 @@ const renderOperation = (item, result, color) => {
   return `${paint(`${marker} ${verb}`, 'green', color)}  ${source}\n  ${paint('→', 'cyan', color)} ${target}`;
 };
 
+const renderDirectoryRemoval = (directory, result, color) => {
+  const target = displayPath(directory, result.root);
+  const marker = result.dryRun ? '◆' : '✓';
+  const verb = result.dryRun ? 'Would delete folder and remaining contents' : 'Deleted folder and remaining contents';
+  return paint(`${marker} ${verb}  ${target}`, 'red', color);
+};
+
 const renderResult = (result, options = {}) => {
   const { command, color = false } = options;
   const changes = result.changes || [];
+  const directoryRemovals = result.directoryRemovals || [];
   const warnings = result.warnings || [];
   const sections = [];
 
   if (changes.length) sections.push(changes.map(item => renderOperation(item, result, color)).join('\n\n'));
+  if (directoryRemovals.length) {
+    sections.push(directoryRemovals.map(directory => renderDirectoryRemoval(directory, result, color)).join('\n'));
+  }
   if (warnings.length) {
     sections.push(warnings.map(warning => paint(`⚠ ${warning}`, 'yellow', color)).join('\n'));
   }
@@ -72,7 +84,8 @@ const renderResult = (result, options = {}) => {
       ));
     }
   } else {
-    sections.push(`${result.dryRun ? 'Planned' : 'Completed'} ${changes.length} file operation(s).`);
+    const operationCount = changes.length + directoryRemovals.length;
+    sections.push(`${result.dryRun ? 'Planned' : 'Completed'} ${operationCount} file operation(s).`);
   }
 
   return `${sections.join('\n\n')}\n`;

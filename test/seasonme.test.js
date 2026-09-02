@@ -313,6 +313,25 @@ test('series subtitle mover removes only directories that became empty', async t
   assert.equal(fs.existsSync(path.join(season, 'Subs')), false);
 });
 
+test('force-remove-subs deletes a non-empty series Subs tree after moving subtitles', async t => {
+  const directory = await makeTempDirectory(t);
+  const season = path.join(directory, 'Show', 'Show.S01');
+  const subs = path.join(season, 'Subs');
+  const episode = path.join(subs, 'Show.S01E01');
+  await touch(path.join(episode, 'English1.srt'));
+  await touch(path.join(episode, 'notes.nfo'));
+  await touch(path.join(subs, 'loose.txt'));
+
+  const dryRun = await moveSeriesSubs({ directory, dryRun: true, forceRemoveSubs: true });
+  assert.deepEqual(dryRun.directoryRemovals, [subs]);
+  assert.equal(fs.existsSync(subs), true);
+
+  const result = await moveSeriesSubs({ directory, forceRemoveSubs: true });
+  assert.deepEqual(result.directoryRemovals, [subs]);
+  assert.equal(fs.existsSync(path.join(season, 'Show.S01E01.English.1.srt')), true);
+  assert.equal(fs.existsSync(subs), false);
+});
+
 test('subtitle mover uses language codes only in Infuse-friendly mode', async t => {
   const directory = await makeTempDirectory(t);
   const season = path.join(directory, 'Show', 'Show.S01');
@@ -331,6 +350,21 @@ test('movie subtitle mover is awaited and removes only an empty Subs folder', as
   assert.equal(result.changes.length, 1);
   assert.equal(fs.existsSync(path.join(movie, 'Toy.Story.1995.English.3.srt')), true);
   assert.equal(fs.existsSync(path.join(movie, 'Subs')), false);
+});
+
+test('force-remove-subs deletes an ambiguous movie Subs folder without moving its files', async t => {
+  const directory = await makeTempDirectory(t);
+  const movie = path.join(directory, 'Ambiguous.Movie');
+  const subs = path.join(movie, 'Subs');
+  await touch(path.join(movie, 'cut-a.mkv'));
+  await touch(path.join(movie, 'cut-b.mp4'));
+  await touch(path.join(subs, 'English1.srt'));
+  await touch(path.join(subs, 'poster.jpg'));
+
+  const result = await moveMoviesSubs({ directory, forceRemoveSubs: true });
+  assert.equal(result.changes.length, 0);
+  assert.deepEqual(result.directoryRemovals, [subs]);
+  assert.equal(fs.existsSync(subs), false);
 });
 
 test('dummy generator validates input and never clears existing content', async t => {
@@ -356,6 +390,8 @@ test('package main entry exports the public API', () => {
 
 test('CLI documents the opt-in Infuse-friendly mode', () => {
   assert.match(HELP, /--infuse-friendly/);
+  assert.match(HELP, /--force-remove-subs/);
+  assert.match(HELP, /-f, --force-remove-subs/);
 });
 
 test('format success output is styled and reports success accurately', () => {
@@ -384,4 +420,17 @@ test('format warning output does not claim full success', () => {
   }, { command: 'format', color: false });
   assert.match(output, /Format Completed with Warnings/);
   assert.doesNotMatch(output, /Formatted Successfully/);
+});
+
+test('dry-run output makes forced Subs deletion explicit', () => {
+  const root = path.join(path.sep, 'fixtures');
+  const output = renderResult({
+    root,
+    dryRun: true,
+    warnings: [],
+    changes: [],
+    directoryRemovals: [path.join(root, 'Show', 'Subs')],
+  }, { color: false });
+  assert.match(output, /Would delete folder and remaining contents/);
+  assert.match(output, /Planned 1 file operation/);
 });

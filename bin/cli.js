@@ -11,7 +11,7 @@ const HELP = `seasonme ${packageJson.version}
 
 Usage:
   seasonme format [-d directory] [--dry-run] [--infuse-friendly]
-  seasonme movesubs -t <series|movies> -d directory [--dry-run] [--infuse-friendly]
+  seasonme movesubs -t <series|movies> -d directory [--dry-run] [--infuse-friendly] [-f]
   seasonme generate -n number [-d directory] [--force]
 
 Commands:
@@ -23,6 +23,8 @@ Global options:
   -h, --help          Show help
   -v, --version       Show version
   --infuse-friendly   Use Infuse/Plex ranges and language-code suffixes
+  -f, --force-remove-subs
+                      Delete Subs folders and all remaining contents (movesubs)
 
 Safety:
   Renames are validated before any file is changed. Use --dry-run to inspect
@@ -57,12 +59,21 @@ const main = async (argv = process.argv.slice(2)) => {
     return;
   }
   if (command === 'movesubs') {
-    const values = parse(args, { ...commonOptions, type: { type: 'string', short: 't' } });
+    const values = parse(args, {
+      ...commonOptions,
+      type: { type: 'string', short: 't' },
+      'force-remove-subs': { type: 'boolean', short: 'f', default: false },
+    });
     if (!values.directory) throw new TypeError('movesubs requires --directory');
     if (!['series', 'movies'].includes(values.type)) throw new TypeError('movesubs --type must be series or movies');
     const handler = values.type === 'series' ? moveSeriesSubs : moveMoviesSubs;
     const infuseFriendly = values['infuse-friendly'] || values.infusefriendly;
-    printResult(await handler({ directory: values.directory, dryRun: values['dry-run'], infuseFriendly }));
+    printResult(await handler({
+      directory: values.directory,
+      dryRun: values['dry-run'],
+      infuseFriendly,
+      forceRemoveSubs: values['force-remove-subs'],
+    }));
     return;
   }
   if (command === 'generate') {

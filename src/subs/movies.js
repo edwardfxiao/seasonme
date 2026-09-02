@@ -1,8 +1,15 @@
 const path = require('node:path');
-const { executeRenamePlan, listDirectories, listFiles, removeDirectoryIfEmpty } = require('../utils/index.js');
+const {
+  executeRenamePlan,
+  listDirectories,
+  listFiles,
+  removeDirectoryIfEmpty,
+  removeDirectoryTree,
+} = require('../utils/index.js');
 const { getSubtitleTargetName, isSubtitle, isVideo } = require('./common.js');
 
 const buildMoviesSubsPlan = async (directory, options = {}) => {
+  const { forceRemoveSubs = false } = options;
   const root = path.resolve(directory || process.cwd());
   const movieFolders = await listDirectories(root);
   const plan = [];
@@ -13,19 +20,22 @@ const buildMoviesSubsPlan = async (directory, options = {}) => {
     const children = await listDirectories(movieFolder);
     const subsFolder = children.find(folder => path.basename(folder).toLowerCase() === 'subs');
     if (!subsFolder) continue;
+    cleanupCandidates.push(subsFolder);
     const videos = (await listFiles(movieFolder)).filter(isVideo);
     const folderName = path.basename(movieFolder).toLowerCase();
     const exactVideo = videos.find(video => path.parse(video).name.toLowerCase() === folderName);
     const video = exactVideo || (videos.length === 1 ? videos[0] : undefined);
     if (!video) {
-      warnings.push(`Kept subtitles because the movie video is missing or ambiguous: ${movieFolder}`);
+      warnings.push(forceRemoveSubs
+        ? `Will delete Subs folder even though the movie video is missing or ambiguous: ${movieFolder}`
+        : `Kept subtitles because the movie video is missing or ambiguous: ${movieFolder}`);
       continue;
     }
 
     const movieName = path.parse(video).name;
     for (const file of await listFiles(subsFolder)) {
       if (!isSubtitle(file)) {
-        warnings.push(`Kept unsupported file: ${file}`);
+        warnings.push(forceRemoveSubs ? `Will delete unsupported file: ${file}` : `Kept unsupported file: ${file}`);
         continue;
       }
       plan.push({
@@ -34,17 +44,24 @@ const buildMoviesSubsPlan = async (directory, options = {}) => {
         kind: 'subtitle',
       });
     }
-    cleanupCandidates.push(subsFolder);
   }
 
   return { root, plan, warnings, cleanupCandidates };
 };
 
 const moveMoviesSubs = async (props = {}) => {
-  const { directory = process.cwd(), dryRun = false, infuseFriendly = false } = props;
-  const result = await buildMoviesSubsPlan(directory, { infuseFriendly });
+  const {
+    directory = process.cwd(),
+    dryRun = false,
+    infuseFriendly = false,
+    forceRemoveSubs = false,
+  } = props;
+  const result = await buildMoviesSubsPlan(directory, { infuseFriendly, forceRemoveSubs });
   result.changes = await executeRenamePlan(result.plan, { dryRun });
-  if (!dryRun) {
+  result.directoryRemovals = forceRemoveSubs ? result.cleanupCandidates : [];
+  if (!dryRun && forceRemoveSubs) {
+    for (const folder of result.cleanupCandidates) await removeDirectoryTree(folder);
+  } else if (!dryRun) {
     for (const folder of result.cleanupCandidates) await removeDirectoryIfEmpty(folder);
   }
   result.dryRun = dryRun;
