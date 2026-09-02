@@ -12,6 +12,7 @@ const {
 } = require('../src/format/index.js');
 const { moveMoviesSubs } = require('../src/subs/movies.js');
 const { moveSeriesSubs } = require('../src/subs/series.js');
+const { renderResult } = require('../src/ui/index.js');
 
 const fsPromises = fs.promises;
 
@@ -177,4 +178,32 @@ test('package main entry exports the public API', () => {
   assert.equal(typeof seasonme.format, 'function');
   assert.equal(typeof seasonme.moveSeriesSubs, 'function');
   assert.equal(typeof seasonme.generateDummyFiles, 'function');
+});
+
+test('format success output is styled and reports success accurately', () => {
+  const root = path.join(path.sep, 'fixtures');
+  const output = renderResult({
+    root,
+    dryRun: false,
+    warnings: [],
+    changes: [{
+      source: path.join(root, 'Show S1 E1.mkv'),
+      target: path.join(root, 'Show.S01E01.mkv'),
+    }],
+  }, { command: 'format', color: false });
+  assert.match(output, /╭─+╮/);
+  assert.match(output, /✓ Formatted Successfully!/);
+  assert.match(output, /Show S1 E1\.mkv/);
+  assert.match(output, /Show\.S01E01\.mkv/);
+});
+
+test('format warning output does not claim full success', () => {
+  const output = renderResult({
+    root: path.sep,
+    dryRun: false,
+    warnings: ['Skipped an unrelated video'],
+    changes: [],
+  }, { command: 'format', color: false });
+  assert.match(output, /Format Completed with Warnings/);
+  assert.doesNotMatch(output, /Formatted Successfully/);
 });

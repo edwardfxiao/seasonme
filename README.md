@@ -13,6 +13,8 @@ npm install seasonme -g
 
 Requires Node.js 18 or newer. File operations are validated before they run,
 existing targets are never overwritten, and unknown files are preserved.
+Successful `format` runs finish with a styled summary. Runs that contain
+warnings use a distinct warning summary and never claim full success.
 
 ## 1. Format Files (`seasonme format`)
 Standardize the naming of your video and subtitle files in a directory.

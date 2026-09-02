@@ -5,6 +5,7 @@ const { generateDummyFiles } = require('../src/dummy/index.js');
 const { format } = require('../src/format/index.js');
 const { moveSeriesSubs } = require('../src/subs/series.js');
 const { moveMoviesSubs } = require('../src/subs/movies.js');
+const { printResult } = require('../src/ui/index.js');
 
 const HELP = `seasonme ${packageJson.version}
 
@@ -33,12 +34,6 @@ const commonOptions = {
   help: { type: 'boolean', short: 'h', default: false },
 };
 
-const printResult = result => {
-  for (const warning of result.warnings || []) console.warn(`Warning: ${warning}`);
-  for (const item of result.changes || []) console.log(`${result.dryRun ? 'Would move' : 'Moved'}: ${item.source} -> ${item.target}`);
-  console.log(`${result.dryRun ? 'Planned' : 'Completed'} ${result.changes ? result.changes.length : 0} file operation(s).`);
-};
-
 const parse = (args, options) => parseArgs({ args, options, allowPositionals: false, strict: true }).values;
 
 const main = async (argv = process.argv.slice(2)) => {
@@ -54,7 +49,7 @@ const main = async (argv = process.argv.slice(2)) => {
   const [command, ...args] = argv;
   if (command === 'format') {
     const values = parse(args, commonOptions);
-    printResult(await format({ directory: values.directory, dryRun: values['dry-run'] }));
+    printResult(await format({ directory: values.directory, dryRun: values['dry-run'] }), { command: 'format' });
     return;
   }
   if (command === 'movesubs') {

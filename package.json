@@ -1,12 +1,12 @@
 {
   "name": "seasonme",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Safely organize TV show, movie, and subtitle file names",
   "main": "src/index.js",
   "scripts": {
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",
-    "check": "node --check bin/cli.js && node --check src/index.js && node --check src/format/index.js && node --check src/subs/common.js && node --check src/subs/series.js && node --check src/subs/movies.js && node --check src/dummy/index.js && node --check src/utils/index.js",
+    "check": "node --check bin/cli.js && node --check src/index.js && node --check src/format/index.js && node --check src/subs/common.js && node --check src/subs/series.js && node --check src/subs/movies.js && node --check src/dummy/index.js && node --check src/utils/index.js && node --check src/ui/index.js",
     "patch-release": "npm version patch && npm publish && git push --follow-tags"
   },
   "engines": {
