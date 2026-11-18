@@ -50,16 +50,14 @@ The.Office.US.S01
 │   The.Office.US.S01E02.BluRay.srt
 ```
 
-Trailing subtitle language markers such as `chs`, `cht`, `zh`, `中`, and `中英`
-use `.中文字幕` in the default style. Chinese takes precedence in bilingual
-suffixes such as `.chs.eng`, `.chs&eng`, and `.zh&en`. Track numbers are kept:
-`.English.2.srt` and `.English.3.srt` remain separate subtitles instead of
-colliding at `.English.srt`.
+Track numbers are preserved: `.English.2.srt` and `.English.3.srt` remain
+separate subtitles. Repeated formatting leaves these names unchanged.
+Conflicting target names cause formatting to abort before any files are renamed.
 
 ### Optional Infuse/TMDB-friendly mode
 
 The default output keeps seasonme's compact multi-episode and subtitle styles,
-such as `S04E05E06` and `.中文字幕`. Add `--infuse-friendly` only when you
+such as `S04E05E06` and `.English`. Add `--infuse-friendly` only when you
 want stricter Infuse/Plex naming:
 
 ```sh
@@ -83,7 +81,7 @@ matching requires a season number.
 
 In `--infuse-friendly` mode external subtitles are renamed to exactly match
 their video and recognized languages use Infuse's documented suffix style,
-for example `Show.Name.S01E01-en.srt` or `Show.Name.S01E01-zh.srt`.
+for example `Show.Name.S01E01-en.srt` or `Show.Name.S01E01-fr.srt`.
 Numbered tracks retain their numbers, for example `Show.Name.S01E01-en-2.srt`.
 
 ## 2. Move Subtitles (`seasonme movesubs`)

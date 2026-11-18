@@ -127,13 +127,17 @@ const canonicalizeEpisodeName = (value, options = {}) => {
 
 const sequenceKey = (directory, info) => `${path.resolve(directory)}\0${info.season}_${info.episode}`;
 
-const getFormatSubtitleSuffix = (subtitleName, videoName, options) => {
+const getSubtitleSuffixAfterVideoName = (subtitleName, videoName) => {
   const normalizedSubtitle = subtitleName.toLowerCase();
   const normalizedVideo = videoName.toLowerCase();
   if (normalizedSubtitle === normalizedVideo) return '';
-  const matchesVideoPrefix = normalizedSubtitle.startsWith(`${normalizedVideo}.`)
-    || normalizedSubtitle.startsWith(`${normalizedVideo}-`);
-  const suffix = matchesVideoPrefix ? subtitleName.slice(videoName.length) : subtitleName;
+  if (!normalizedSubtitle.startsWith(normalizedVideo)) return undefined;
+  const suffix = subtitleName.slice(videoName.length);
+  return /^[.\s_&+\-([{【]/u.test(suffix.normalize('NFKC')) ? suffix : undefined;
+};
+
+const getFormatSubtitleSuffix = (subtitleName, videoName, options) => {
+  const suffix = getSubtitleSuffixAfterVideoName(subtitleName, videoName) ?? subtitleName;
   return getSubtitleLanguageSuffix(suffix, options);
 };
 
@@ -180,7 +184,7 @@ const buildFormatPlan = async (directory, options = {}) => {
       const subtitleName = canonical.name.toLowerCase();
       const specificMatches = matches.filter(item => {
         const videoName = path.parse(item.target).name.toLowerCase();
-        return subtitleName === videoName || subtitleName.startsWith(`${videoName}.`) || subtitleName.startsWith(`${videoName}-`);
+        return getSubtitleSuffixAfterVideoName(subtitleName, videoName) !== undefined;
       });
       if (specificMatches.length === 1) selectedVideo = specificMatches[0];
       else {

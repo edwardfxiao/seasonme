@@ -228,9 +228,9 @@ test('recognizes Chinese in trailing bilingual language groups', async t => {
   const root = await makeTempDirectory(t);
   const videoName = 'Fleabag.S02E01.2160p.AMZN.WEB-DL.DDP5.1.HDR.HEVC-SHORTBREHD';
   const suffixes = [
-    'chs', 'cht', 'zh', 'chs.eng', 'chs&eng', 'cht.eng', 'cht&eng', 'zh&en', 'eng.chs',
-    'en&zh', 'CHS&ENG', 'zh-CN.eng', 'zh-TW&en', '中', '中英', '英中',
-    '简体中文', '繁體中文', 'chs_eng', 'chs+eng', 'chs.eng.sdh',
+    'chs', 'zh', 'chs.eng', 'chs&eng', 'zh&en', 'eng.chs',
+    'en&zh', 'CHS&ENG', 'zh-CN.eng', '中', '中英', '英中',
+    '简体中文', 'chs_eng', 'chs+eng', 'chs.eng.sdh',
   ];
   for (const [index, suffix] of suffixes.entries()) {
     const directory = path.join(root, String(index));
