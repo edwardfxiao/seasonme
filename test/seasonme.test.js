@@ -8,11 +8,13 @@ const {
   canonicalizeEpisodeName,
   format,
   getSequenceInfo,
+  handleSubRenaming,
   handleVideoRenaming,
   isInfuseCompatibleEpisodeName,
 } = require('../src/format/index.js');
 const { moveMoviesSubs } = require('../src/subs/movies.js');
 const { moveSeriesSubs } = require('../src/subs/series.js');
+const { getSubtitleLanguageCode } = require('../src/subs/common.js');
 const { renderResult } = require('../src/ui/index.js');
 const { HELP } = require('../bin/cli.js');
 
@@ -220,6 +222,129 @@ test('keeps dot-separated language names by default', async t => {
     fs.existsSync(path.join(directory, 'Bluey.(2018).S03E01.Perfect.中文字幕.srt')),
     true,
   );
+});
+
+test('recognizes Chinese in trailing bilingual language groups', async t => {
+  const root = await makeTempDirectory(t);
+  const videoName = 'Fleabag.S02E01.2160p.AMZN.WEB-DL.DDP5.1.HDR.HEVC-SHORTBREHD';
+  const suffixes = [
+    'chs', 'cht', 'zh', 'chs.eng', 'chs&eng', 'cht.eng', 'cht&eng', 'zh&en', 'eng.chs',
+    'en&zh', 'CHS&ENG', 'zh-CN.eng', 'zh-TW&en', '中', '中英', '英中',
+    '简体中文', '繁體中文', 'chs_eng', 'chs+eng', 'chs.eng.sdh',
+  ];
+  for (const [index, suffix] of suffixes.entries()) {
+    const directory = path.join(root, String(index));
+    await touch(path.join(directory, `${videoName}.mkv`));
+    await touch(path.join(directory, `${videoName}.${suffix}.ass`));
+    await format({ directory });
+    assert.equal(await fsPromises.readFile(path.join(directory, `${videoName}.中文字幕.ass`), 'utf8'), 'fixture', suffix);
+    assert.equal((await format({ directory })).changes.length, 0, suffix);
+  }
+});
+
+test('language detection stays within the trailing language group', () => {
+  const cases = new Map([
+    ['Show.S01E01.zh-CN.2.forced', 'zh'],
+    ['Show.S01E01.Portuguese-BR.3.sdh', 'pt-br'],
+    ['Show.S01E01.English2', 'en'],
+    ['Show.S01E01.English.3', 'en'],
+    ['Show.S01E01.French', 'fr'],
+    ['CHS.Show.S01E01.English.2', 'en'],
+    ['中英.Show.S01E01.1080p', undefined],
+    ['Show.S01E01.WEB-DL.x265', undefined],
+    ['Show.S01E01.ReleaseCHS', undefined],
+  ]);
+  for (const [name, expected] of cases) assert.equal(getSubtitleLanguageCode(name), expected, name);
+});
+
+test('does not treat the matching video name as part of the subtitle language group', async t => {
+  const directory = await makeTempDirectory(t);
+  await touch(path.join(directory, 'Show.S01E01.CHS.mkv'));
+  await touch(path.join(directory, 'Show.S01E01.CHS.English.2.srt'));
+  await touch(path.join(directory, 'Show.S01E01.CHS.English.3.srt'));
+  assert.equal((await format({ directory })).changes.length, 0);
+});
+
+test('recognizes the Chinese bilingual marker after a different episode release name', async t => {
+  const directory = await makeTempDirectory(t);
+  const videoName = 'Arrested.Development.S05E12.1080p.WEBRip.x265-RARBG';
+  await touch(path.join(directory, `${videoName}.mp4`));
+  await touch(path.join(directory, 'Arrested Development (2003) - S05E12 - Check Mates (1080p NF WEB-DL x265 Garshasp).中英.ass'));
+  await format({ directory });
+  assert.equal(await fsPromises.readFile(path.join(directory, `${videoName}.中文字幕.ass`), 'utf8'), 'fixture');
+});
+
+test('preserves numbered English tracks alongside a Chinese bilingual subtitle', async t => {
+  const directory = await makeTempDirectory(t);
+  const videoName = 'Arrested.Development.S05E01.1080p.WEBRip.x265-RARBG';
+  const chineseName = 'Arrested Development (2003) - S05E01 - Family Leave (1080p NF WEB-DL x265 Garshasp).中英.ass';
+  await touch(path.join(directory, `${videoName}.mp4`));
+  for (const suffix of ['English', 'English.2', 'English.3']) {
+    await fsPromises.writeFile(path.join(directory, `${videoName}.${suffix}.srt`), suffix);
+  }
+  await fsPromises.writeFile(path.join(directory, chineseName), 'Chinese and English');
+
+  const dryRun = await format({ directory, dryRun: true });
+  assert.equal(dryRun.changes.length, 1);
+  assert.equal(dryRun.changes[0].target, path.join(directory, `${videoName}.中文字幕.ass`));
+  assert.equal(fs.existsSync(path.join(directory, chineseName)), true);
+  const result = await format({ directory });
+  assert.equal(result.changes.length, 1);
+  for (const suffix of ['English', 'English.2', 'English.3']) {
+    assert.equal(await fsPromises.readFile(path.join(directory, `${videoName}.${suffix}.srt`), 'utf8'), suffix);
+  }
+  assert.equal(await fsPromises.readFile(path.join(directory, `${videoName}.中文字幕.ass`), 'utf8'), 'Chinese and English');
+  assert.equal((await format({ directory })).changes.length, 0);
+});
+
+test('retains subtitle track numbers when normalizing different release names in either mode', async t => {
+  for (const infuseFriendly of [false, true]) {
+    const directory = await makeTempDirectory(t);
+    await touch(path.join(directory, 'Show S1 E1.mkv'));
+    const cases = [
+      ['ReleaseA.S01E01.English2.srt', infuseFriendly ? '-en-2.srt' : '.English.2.srt'],
+      ['ReleaseB.1x1.en.3.srt', infuseFriendly ? '-en-3.srt' : '.English.3.srt'],
+      ['ReleaseC.S01E01.chs&eng.04.ass', infuseFriendly ? '-zh-04.ass' : '.中文字幕.04.ass'],
+      ['ReleaseD.S01E01.English.5.forced.srt', infuseFriendly ? '-en-5.srt' : '.English.5.srt'],
+      ['ReleaseE.S01E01.Portuguese-BR.6.srt', infuseFriendly ? '-pt-br-6.srt' : '.Portuguese-BR.6.srt'],
+    ];
+    for (const [source] of cases) await fsPromises.writeFile(path.join(directory, source), source);
+    await format({ directory, infuseFriendly });
+    for (const [source, suffix] of cases) {
+      assert.equal(await fsPromises.readFile(path.join(directory, `Show.S01E01${suffix}`), 'utf8'), source);
+    }
+    assert.equal((await format({ directory, infuseFriendly })).changes.length, 0);
+  }
+});
+
+test('legacy subtitle helper uses the same language and numbering rules', async () => {
+  const files = [
+    'Release.S05E01.chs.eng.ass',
+    'Release.S05E01.English.2.srt',
+    'Release.S05E01.English.3.srt',
+    'Show.S05E01.English.srt',
+  ];
+  const names = { S05_E01: 'Show.S05E01.English' };
+  assert.deepEqual(await handleSubRenaming(files, names), [
+    'Show.S05E01.English.中文字幕.ass',
+    'Show.S05E01.English.English.2.srt',
+    'Show.S05E01.English.English.3.srt',
+    'Show.S05E01.English.srt',
+  ]);
+  assert.deepEqual(await handleSubRenaming(files, names, { infuseFriendly: true }), [
+    'Show.S05E01.English-zh.ass',
+    'Show.S05E01.English-en-2.srt',
+    'Show.S05E01.English-en-3.srt',
+    'Show.S05E01.English.srt',
+  ]);
+});
+
+test('still rejects subtitles whose language and track number truly collide', async t => {
+  const directory = await makeTempDirectory(t);
+  const files = ['Show S1 E1.mkv', 'ReleaseA.S01E01.English2.srt', 'ReleaseB.S01E01.en.2.srt'];
+  for (const file of files) await touch(path.join(directory, file));
+  await assert.rejects(format({ directory }), /Multiple files would use the same target/);
+  for (const file of files) assert.equal(await fsPromises.readFile(path.join(directory, file), 'utf8'), 'fixture');
 });
 
 test('keeps a subtitle with no matching video', async t => {

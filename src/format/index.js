@@ -1,6 +1,6 @@
 const path = require('node:path');
 const { CASES, SUB_EXTS, VIDEO_EXTS } = require('../consts/index.js');
-const { getLegacyLanguageName, getSubtitleLanguageCode } = require('../subs/common.js');
+const { getSubtitleLanguageSuffix } = require('../subs/common.js');
 const { executeRenamePlan, walkFiles } = require('../utils/index.js');
 
 const videoExtensions = new Set(VIDEO_EXTS.map(ext => ext.toLowerCase()));
@@ -127,8 +127,17 @@ const canonicalizeEpisodeName = (value, options = {}) => {
 
 const sequenceKey = (directory, info) => `${path.resolve(directory)}\0${info.season}_${info.episode}`;
 
+const getFormatSubtitleSuffix = (subtitleName, videoName, options) => {
+  const normalizedSubtitle = subtitleName.toLowerCase();
+  const normalizedVideo = videoName.toLowerCase();
+  if (normalizedSubtitle === normalizedVideo) return '';
+  const matchesVideoPrefix = normalizedSubtitle.startsWith(`${normalizedVideo}.`)
+    || normalizedSubtitle.startsWith(`${normalizedVideo}-`);
+  const suffix = matchesVideoPrefix ? subtitleName.slice(videoName.length) : subtitleName;
+  return getSubtitleLanguageSuffix(suffix, options);
+};
+
 const buildFormatPlan = async (directory, options = {}) => {
-  const { infuseFriendly = false } = options;
   const root = path.resolve(directory || process.cwd());
   const files = await walkFiles(root);
   const plan = [];
@@ -184,12 +193,7 @@ const buildFormatPlan = async (directory, options = {}) => {
       continue;
     }
     const videoName = path.parse(selectedVideo.target).name;
-    const languageCode = getSubtitleLanguageCode(parsedPath.name);
-    const subtitleMatchesVideo = canonical.name.toLowerCase() === videoName.toLowerCase();
-    const legacyLanguage = getLegacyLanguageName(parsedPath.name);
-    const languageSuffix = infuseFriendly
-      ? (subtitleMatchesVideo ? '' : (languageCode ? `-${languageCode}` : ''))
-      : (subtitleMatchesVideo ? '' : (legacyLanguage ? `.${legacyLanguage}` : ''));
+    const languageSuffix = getFormatSubtitleSuffix(canonical.name, videoName, options);
     const targetName = `${videoName}${languageSuffix}${parsedPath.ext.toLowerCase()}`;
     plan.push({ source: file, target: path.join(parsedPath.dir, targetName), kind: 'subtitle', sequenceInfo: canonical.sequenceInfo });
   }
@@ -245,11 +249,7 @@ const handleSubRenaming = async (files, fileNamesHash, options = {}) => {
     const key = `${canonical.sequenceInfo.season}_${canonical.sequenceInfo.episode}`;
     const videoName = fileNamesHash[key];
     if (!videoName) continue;
-    const languageCode = getSubtitleLanguageCode(parsedPath.name);
-    const legacyLanguage = getLegacyLanguageName(parsedPath.name);
-    const languageSuffix = options.infuseFriendly
-      ? (languageCode ? `-${languageCode}` : '')
-      : (legacyLanguage ? `.${legacyLanguage}` : '');
+    const languageSuffix = getFormatSubtitleSuffix(canonical.name, videoName, options);
     plan.push({
       source: file,
       target: path.join(parsedPath.dir, `${videoName}${languageSuffix}${parsedPath.ext.toLowerCase()}`),

@@ -8,6 +8,8 @@ const LANGUAGE_CODES = new Map([
   ['chinese', 'zh'], ['chi', 'zh'], ['zho', 'zh'], ['chs', 'zh'], ['cht', 'zh'],
   ['zh', 'zh'], ['zh-cn', 'zh'], ['zh-tw', 'zh'], ['zh-hk', 'zh'],
   ['zh-sg', 'zh'], ['zh-mo', 'zh'], ['中文', 'zh'], ['中文字幕', 'zh'], ['简体', 'zh'], ['繁体', 'zh'],
+  ['zh-hans', 'zh'], ['zh-hant', 'zh'], ['中', 'zh'], ['中英', 'zh'], ['英中', 'zh'],
+  ['简中', 'zh'], ['繁中', 'zh'], ['简体中文', 'zh'], ['繁体中文', 'zh'], ['繁體中文', 'zh'],
   ['english', 'en'], ['eng', 'en'], ['en', 'en'],
   ['french', 'fr'], ['fre', 'fr'], ['fra', 'fr'], ['fr', 'fr'],
   ['german', 'de'], ['ger', 'de'], ['deu', 'de'], ['de', 'de'],
@@ -15,7 +17,7 @@ const LANGUAGE_CODES = new Map([
   ['italian', 'it'], ['ita', 'it'], ['it', 'it'],
   ['japanese', 'ja'], ['jpn', 'ja'], ['ja', 'ja'],
   ['korean', 'ko'], ['kor', 'ko'], ['ko', 'ko'],
-  ['portuguese', 'pt'], ['por', 'pt'], ['pt', 'pt'], ['pt-br', 'pt-br'],
+  ['portuguese', 'pt'], ['por', 'pt'], ['pt', 'pt'], ['pt-br', 'pt-br'], ['portuguese-br', 'pt-br'],
   ['russian', 'ru'], ['rus', 'ru'], ['ru', 'ru'],
 ]);
 const LEGACY_LANGUAGE_NAMES = new Map([
@@ -52,22 +54,46 @@ const getNumberedSubtitleSuffix = (value, options = {}) => {
   return [language || 'Subtitle', number].filter(Boolean).join('.');
 };
 
-const getSubtitleLanguageCode = value => {
-  const normalized = value.replace(/[._ ]+/g, '-');
-  const tokens = normalized.split('-').filter(Boolean);
-  if (tokens.length) {
-    const attachedNumber = /^(.+?)(\d+)$/.exec(tokens[tokens.length - 1]);
-    if (attachedNumber) tokens[tokens.length - 1] = attachedNumber[1];
+const getSubtitleLanguageInfo = value => {
+  const tokens = value.split(/[.\s_&+-]+/).filter(Boolean);
+  let languageCode;
+  let number;
+
+  // Read only the trailing language group, stopping at the release name.
+  // Chinese takes precedence in bilingual groups such as chs.eng or zh&en.
+  while (tokens.length) {
+    const last = tokens[tokens.length - 1];
+    if (/^(?:forced|sdh|cc|default|hi)$/i.test(last)) {
+      tokens.pop();
+      continue;
+    }
+    if (!languageCode && /^\d+$/.test(last)) {
+      number = number || last;
+      tokens.pop();
+      continue;
+    }
+    const attachedNumber = /^(.+?)(\d+)$/.exec(last);
+    const language = attachedNumber ? attachedNumber[1] : last;
+    const pair = tokens.length > 1 ? `${tokens[tokens.length - 2]}-${language}` : '';
+    const pairCode = normalizeLanguageCode(pair);
+    const code = pairCode || normalizeLanguageCode(language);
+    if (!code) break;
+    languageCode = code === 'zh' ? code : (languageCode || code);
+    if (attachedNumber) number = number || attachedNumber[2];
+    tokens.splice(tokens.length - (pairCode ? 2 : 1));
   }
-  while (/^(?:\d+|forced|sdh|cc|default|hi)$/i.test(tokens[tokens.length - 1] || '')) tokens.pop();
-  const last = tokens[tokens.length - 1] || '';
-  const pair = tokens.length > 1 ? `${tokens[tokens.length - 2]}-${last}` : '';
-  if (LANGUAGE_CODES.has(pair.toLowerCase())) return LANGUAGE_CODES.get(pair.toLowerCase());
-  if (LANGUAGE_CODES.has(last.toLowerCase())) return LANGUAGE_CODES.get(last.toLowerCase());
-  return undefined;
+  return { languageCode, number: languageCode ? number : undefined };
 };
 
+const getSubtitleLanguageCode = value => getSubtitleLanguageInfo(value).languageCode;
 const getLegacyLanguageName = value => LEGACY_LANGUAGE_NAMES.get(getSubtitleLanguageCode(value));
+
+const getSubtitleLanguageSuffix = (value, options = {}) => {
+  const { languageCode, number } = getSubtitleLanguageInfo(value);
+  const language = options.infuseFriendly ? languageCode : LEGACY_LANGUAGE_NAMES.get(languageCode);
+  const separator = options.infuseFriendly ? '-' : '.';
+  return language ? `${separator}${[language, number].filter(Boolean).join(separator)}` : '';
+};
 
 const getSubtitleTargetName = (file, mediaName, options = {}) => {
   const parsed = path.parse(file);
@@ -84,4 +110,4 @@ const getSubtitleTargetName = (file, mediaName, options = {}) => {
   return `${mediaName}${options.infuseFriendly ? '-' : '.'}${suffix}${extension}`;
 };
 
-module.exports = { getLegacyLanguageName, getSubtitleLanguageCode, getSubtitleTargetName, isSubtitle, isVideo };
+module.exports = { getLegacyLanguageName, getSubtitleLanguageCode, getSubtitleLanguageSuffix, getSubtitleTargetName, isSubtitle, isVideo };
