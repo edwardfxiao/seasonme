@@ -55,6 +55,22 @@ const renderResult = (result, options = {}) => {
   const warnings = result.warnings || [];
   const sections = [];
 
+  if (command === 'format' && result.directories) {
+    sections.push([
+      `Root: ${result.root}`,
+      `Media folders scanned recursively (${result.directories.length}):`,
+      ...result.directories.map(directory => `  • ${path.relative(result.root, directory) || '.'}`),
+    ].join('\n'));
+  }
+
+  if (result.subsFolders) {
+    sections.push([
+      `Root: ${result.root}`,
+      `Subs folders found recursively (${result.subsFolders.length}):`,
+      ...result.subsFolders.map(directory => `  • ${path.relative(result.root, directory) || '.'}`),
+    ].join('\n'));
+  }
+
   if (changes.length) sections.push(changes.map(item => renderOperation(item, result, color)).join('\n\n'));
   if (directoryRemovals.length) {
     sections.push(directoryRemovals.map(directory => renderDirectoryRemoval(directory, result, color)).join('\n'));
@@ -66,8 +82,10 @@ const renderResult = (result, options = {}) => {
   if (command === 'format') {
     if (warnings.length) {
       sections.push(renderBox(
-        '⚠ Format Completed with Warnings',
-        `${changes.length} file operation(s) completed; ${warnings.length} warning(s).`,
+        result.dryRun ? '⚠ Format Dry Run Completed with Warnings' : '⚠ Format Completed with Warnings',
+        result.dryRun
+          ? `${changes.length} file operation(s) planned; ${warnings.length} warning(s). No files were changed.`
+          : `${changes.length} file operation(s) completed; ${warnings.length} warning(s).`,
         { tone: 'yellow', color },
       ));
     } else if (result.dryRun) {
@@ -79,7 +97,9 @@ const renderResult = (result, options = {}) => {
     } else {
       sections.push(renderBox(
         '✓ Formatted Successfully!',
-        changes.length ? `${changes.length} file operation(s) completed safely.` : 'Everything is already formatted. No changes were needed.',
+        result.directories?.length === 0
+          ? 'No supported video or subtitle files were found.'
+          : changes.length ? `${changes.length} file operation(s) completed safely.` : 'Everything is already formatted. No changes were needed.',
         { tone: 'green', color },
       ));
     }

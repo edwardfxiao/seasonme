@@ -11,13 +11,25 @@ const HELP = `seasonme ${packageJson.version}
 
 Usage:
   seasonme format [-d directory] [--dry-run] [--infuse-friendly]
-  seasonme movesubs -t <series|movies> -d directory [--dry-run] [--infuse-friendly] [-f]
+  seasonme movesubs -t series [-d directory] [--dry-run] [--infuse-friendly] [-f]
+  seasonme movesubs -t movies -d directory [--dry-run] [--infuse-friendly] [-f]
   seasonme generate -n number [-d directory] [--force]
 
 Commands:
-  format      Standardize TV video and subtitle names
+  format      Recursively standardize TV video and subtitle names
   movesubs    Move subtitles out of Subs folders
   generate    Generate sample files without deleting existing content
+
+Format scope (current directory, or --directory / -d):
+  Show folder     All versions and their seasons
+  Version folder  All seasons in that version
+  Season folder   Files in that season (including subfolders)
+  No --recursive flag is needed. Subtitles match videos in the same folder.
+
+Series movesubs scope (current directory, or --directory / -d):
+  Show, version, and season folders are supported. Subs folders are found
+  recursively, including Subs directly inside the selected season folder.
+  Subtitles move into the folder containing their Subs folder.
 
 Global options:
   -h, --help          Show help
@@ -64,8 +76,8 @@ const main = async (argv = process.argv.slice(2)) => {
       type: { type: 'string', short: 't' },
       'force-remove-subs': { type: 'boolean', short: 'f', default: false },
     });
-    if (!values.directory) throw new TypeError('movesubs requires --directory');
     if (!['series', 'movies'].includes(values.type)) throw new TypeError('movesubs --type must be series or movies');
+    if (values.type === 'movies' && !values.directory) throw new TypeError('movesubs -t movies requires --directory');
     const handler = values.type === 'series' ? moveSeriesSubs : moveMoviesSubs;
     const infuseFriendly = values['infuse-friendly'] || values.infusefriendly;
     printResult(await handler({

@@ -17,7 +17,9 @@ Successful `format` runs finish with a styled summary. Runs that contain
 warnings use a distinct warning summary and never claim full success.
 
 ## 1. Format Files (`seasonme format`)
-Standardize the naming of your video and subtitle files in a directory.
+Standardize the naming of your video and subtitle files in a directory and
+its subdirectories. The same command works from a show, version, or season
+folder; no extra flag is needed.
 
 ### Usage
 ```sh
@@ -28,6 +30,51 @@ Standardize the naming of your video and subtitle files in a directory.
 # preview without changing files
 ~$ seasonme format -d MY_FOLDER_PATH --dry-run
 ```
+
+### Run from a show, version, or season folder
+
+For example, this show has two versions, each containing multiple seasons:
+
+```text
+/Series/The.Big.Bang.Theory/                                  # A: show
+├── The.Big.Bang.Theory.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]/
+│   │                                                        # B: version
+│   ├── The.Big.Bang.Theory.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]/
+│   └── The.Big.Bang.Theory.S02.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]/
+│                                                            # C: seasons
+└── The.Big.Bang.Theory.1080p.BluRay.x265-RARBG/                 # B: version
+    ├── The.Big.Bang.Theory.S01.1080p.BluRay.x265-RARBG/         # C: season
+    └── The.Big.Bang.Theory.S02.1080p.BluRay.x265-RARBG/         # C: season
+```
+
+- **A — show folder:** process all versions and all seasons beneath the show.
+- **B — version folder:** process all seasons beneath that version.
+- **C — season folder:** process that season, including any subdirectories.
+
+```sh
+# A: all versions and seasons
+seasonme format -d '/Series/The.Big.Bang.Theory/'
+
+# B: all seasons of the REMUX version
+seasonme format -d '/Series/The.Big.Bang.Theory/The.Big.Bang.Theory.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]'
+
+# C: only season 2 of the REMUX version
+seasonme format -d '/Series/The.Big.Bang.Theory/The.Big.Bang.Theory.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]/The.Big.Bang.Theory.S02.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP[rartv]'
+```
+
+Alternatively, `cd` into any of these folders and run `seasonme format`.
+Quote paths containing spaces or brackets. Add `--dry-run` to any command
+to preview the whole batch, or `--infuse-friendly` to apply that naming mode
+to the whole batch. Output lists the media folders scanned and the relative
+paths of changed files.
+
+Discovery is recursive and does not depend on the version or season folder
+names. Episode information is still read from filenames. Files stay in their
+original folders, and folder names are not changed. Subtitles are matched only
+to videos in the same folder, so identical episode numbers in different
+versions cannot mix. Hidden entries and symbolic links inside the selected
+folder are skipped. All rename targets across the entire batch are validated
+before any file is changed; a conflict in one season aborts the whole batch.
 
 ### Example
 Before:
@@ -88,11 +135,40 @@ Numbered tracks retain their numbers, for example `Show.Name.S01E01-en-2.srt`.
 Organize subtitle files from a Subs directory to match with your video files. Supports both TV series and movies.
 
 ### For TV Series
+
+Run from a show folder (A), a version folder (B), or an individual season
+folder (C). When `-d` is omitted, the current directory is used. Like `format`,
+series `movesubs` searches recursively by default; no `-r` flag is needed.
+
 ```sh
-~$ seasonme movesubs -t series -d MY_SERIES_PATH(e.g. ~/your/path/to/Twin.Peaks)
-# preview without changing files
-~$ seasonme movesubs -t series -d MY_SERIES_PATH --dry-run
+# All versions and seasons beneath a show
+seasonme movesubs -t series -d /myshow
+
+# Only the selected season
+seasonme movesubs -t series -d /myshow/season1
+
+# Or enter the season directory and run directly
+cd /myshow/season1
+seasonme movesubs -t series -d . --dry-run
+seasonme movesubs -t series
 ```
+
+`-d .` explicitly selects the current directory and is equivalent to omitting
+`-d` for series `movesubs`.
+
+In a season directory, `Subs/<episode>/<subtitle>` is detected directly.
+The show and season directory names are not parsed: plain names such as
+`myshow/season1` work just like `Twin.Peaks/Twin.Peaks.S01`.
+Subtitles are moved beside that season's videos, using the episode subfolder
+name and the existing language/track naming rules. From a show or version
+directory, each descendant `Subs` folder is handled in its own season;
+files are never collected into the command's starting directory. Running
+from a single season does not affect sibling seasons or other versions.
+`--dry-run`, `--infuse-friendly`, and `--force-remove-subs` work at all three
+levels. All moves in a batch are validated before any moves or cleanup run.
+Output shows the scan root and the `Subs` folders found. If none are found,
+the command reports the expected structure. Loose subtitles directly inside
+`Subs` are preserved with a warning unless forced deletion is requested.
 
 #### Expected Structure
 ```

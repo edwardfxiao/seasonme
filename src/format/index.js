@@ -143,7 +143,13 @@ const getFormatSubtitleSuffix = (subtitleName, videoName, options) => {
 
 const buildFormatPlan = async (directory, options = {}) => {
   const root = path.resolve(directory || process.cwd());
+  // A show, release/version, or season folder can all be used as the root.
+  // Keep one combined plan so every directory is validated before any rename.
   const files = await walkFiles(root);
+  const directories = [...new Set(files
+    .filter(file => videoExtensions.has(path.extname(file).toLowerCase())
+      || subtitleExtensions.has(path.extname(file).toLowerCase()))
+    .map(file => path.dirname(file)))];
   const plan = [];
   const warnings = [];
   const errors = [];
@@ -202,7 +208,7 @@ const buildFormatPlan = async (directory, options = {}) => {
     plan.push({ source: file, target: path.join(parsedPath.dir, targetName), kind: 'subtitle', sequenceInfo: canonical.sequenceInfo });
   }
 
-  return { root, plan, warnings, errors };
+  return { root, directories, plan, warnings, errors };
 };
 
 const format = async (props = {}) => {

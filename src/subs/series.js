@@ -18,6 +18,10 @@ const buildSeriesSubsPlan = async (directory, options = {}) => {
   const warnings = [];
   const cleanupCandidates = [];
 
+  if (!subsFolders.length) {
+    warnings.push(`No Subs folders found under: ${root}. Expected Subs/<episode>/<subtitle> inside a season folder.`);
+  }
+
   for (const subsFolder of subsFolders) {
     const episodeFolders = await listDirectories(subsFolder);
     const looseFiles = await listFiles(subsFolder);
@@ -44,7 +48,7 @@ const buildSeriesSubsPlan = async (directory, options = {}) => {
     cleanupCandidates.push(subsFolder);
   }
 
-  return { root, plan, warnings, cleanupCandidates };
+  return { root, subsFolders, plan, warnings, cleanupCandidates };
 };
 
 const moveSeriesSubs = async (props = {}) => {
