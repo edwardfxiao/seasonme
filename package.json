@@ -1,6 +1,6 @@
 {
   "name": "seasonme",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Safely organize TV show, movie, and subtitle file names",
   "main": "src/index.js",
   "scripts": {
